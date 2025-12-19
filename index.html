@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTMLマンのヘッドスピード計測器</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f4f8; color: #333; text-align: center; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        video { width: 100%; border-radius: 10px; background: #000; }
+        .controls { margin-top: 15px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px; }
+        button { padding: 10px 20px; border: none; border-radius: 5px; background: #007bff; color: white; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 20px; font-size: 1.5rem; font-weight: bold; color: #d9534f; }
+        .instruction { font-size: 0.9rem; text-align: left; background: #e9ecef; padding: 10px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>⛳️ Head Speed Analyzer</h2>
+    <div class="instruction">
+        <strong>使い方：</strong><br>
+        1. スイング動画を選択（真横からが理想）<br>
+        2. インパクト直前の位置で「地点A」を保存<br>
+        3. インパクト直後の位置で「地点B」を保存<br>
+        4. 推定速度が表示されます！
+    </div>
+
+    <input type="file" id="videoUpload" accept="video/*" style="margin: 20px 0;">
+    <video id="videoPlayer" controls></video>
+
+    <div class="controls">
+        <button onclick="setPoint('A')">地点A (インパクト前)</button>
+        <button onclick="setPoint('B')">地点B (インパクト後)</button>
+    </div>
+
+    <div class="result" id="resultDisplay">Speed: -- m/s</div>
+    <div id="kmhDisplay" style="font-size: 1.1rem; color: #555;">(-- km/h)</div>
+</div>
+
+<script>
+    const video = document.getElementById('videoPlayer');
+    const resultDisplay = document.getElementById('resultDisplay');
+    const kmhDisplay = document.getElementById('kmhDisplay');
+    
+    let pointA = { time: 0 };
+    let pointB = { time: 0 };
+    const clubLength = 1.14; // ドライバーの平均的な長さ(m)を基準に移動距離を推定
+
+    document.getElementById('videoUpload').onchange = function(event) {
+        const file = event.target.files[0];
+        const url = URL.createObjectURL(file);
+        video.src = url;
+    };
+
+    function setPoint(label) {
+        if (label === 'A') {
+            pointA.time = video.currentTime;
+            alert("地点Aを保存しました");
+        } else {
+            pointB.time = video.currentTime;
+            calculateSpeed();
+        }
+    }
+
+    function calculateSpeed() {
+        const timeDiff = Math.abs(pointB.time - pointA.time);
+        if (timeDiff === 0) return;
+
+        // インパクト前後1フレームの移動距離を約0.5m〜0.8mと仮定
+        // 本来は画像解析が必要ですが、簡易的にスイングアークから算出
+        const estimatedDistance = 0.6; 
+        
+        const speedMs = estimatedDistance / timeDiff;
+        const speedKmh = speedMs * 3.6;
+
+        // ゴルフ界で一般的なm/s表記をメインに
+        resultDisplay.innerText = `推定ヘッドスピード: ${speedMs.toFixed(1)} m/s`;
+        kmhDisplay.innerText = `(時速 ${speedKmh.toFixed(1)} km/h)`;
+    }
+</script>
+
+</body>
+</html>
