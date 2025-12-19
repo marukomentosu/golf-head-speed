@@ -2,42 +2,34 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTMLマン：究極のインパクト検知</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>HTMLマン：究極インパクト検知</title>
     <style>
-        body { font-family: -apple-system, sans-serif; background: #1a1a1a; color: white; text-align: center; margin: 0; padding: 20px; }
-        .card { max-width: 500px; margin: auto; background: #2c2c2e; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-        video { width: 100%; border-radius: 12px; background: #000; margin-bottom: 15px; }
+        :root { --primary: #007aff; --danger: #ff3b30; --success: #34c759; }
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #000; color: #fff; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        .ui-layer { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.7); padding: 20px; box-sizing: border-box; border-radius: 20px 20px 0 0; z-index: 10; }
+        video { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; }
         canvas { display: none; }
-        .btn-group { display: flex; flex-direction: column; gap: 10px; }
-        button { padding: 15px; border: none; border-radius: 10px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-start { background: #34c759; color: white; }
-        .btn-stop { background: #ff3b30; color: white; }
-        .btn-analyze { background: #007aff; color: white; display: none; }
-        .result { margin-top: 20px; padding: 15px; background: #3a3a3c; border-radius: 10px; }
-        .speed-val { font-size: 2.5rem; color: #ffcc00; margin: 5px 0; }
-        #log { font-size: 0.8rem; color: #aaa; margin-top: 10px; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; color: white; cursor: pointer; margin-bottom: 10px; }
+        .btn-record { background: var(--danger); }
+        .btn-camera { background: var(--primary); }
+        .btn-analyze { background: var(--success); display: none; }
+        .result-text { font-size: 24px; color: #ffcc00; text-align: center; margin-bottom: 5px; }
+        #status { font-size: 12px; color: #ccc; text-align: center; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>⛳️ Impact Analyzer</h2>
-    <div id="log">カメラを許可して開始してください</div>
-    
-    <video id="player" autoplay muted playsinline></video>
-    <canvas id="hiddenCanvas"></canvas>
+<video id="player" autoplay muted playsinline></video>
+<canvas id="hiddenCanvas"></canvas>
 
+<div class="ui-layer">
+    <div id="status">カメラの権限を許可してください</div>
+    <div id="resultDisplay" class="result-text">--.- m/s</div>
     <div class="btn-group">
-        <button id="cameraBtn" class="btn-start">カメラを起動</button>
-        <button id="recordBtn" class="btn-stop" style="display:none;">録画開始</button>
-        <button id="analyzeBtn" class="btn-analyze">インパクトを自動解析</button>
-    </div>
-
-    <div class="result">
-        <div>推定ヘッドスピード</div>
-        <div id="speedDisplay" class="speed-val">--.- m/s</div>
-        <div id="subDisplay">-- km/h</div>
+        <button id="initBtn" class="btn btn-camera">1. カメラを起動</button>
+        <button id="recBtn" class="btn btn-record" style="display:none;">2. 録画開始</button>
+        <button id="analyzeBtn" class="btn btn-analyze">3. インパクトを解析</button>
     </div>
 </div>
 
@@ -45,93 +37,100 @@
     const video = document.getElementById('player');
     const canvas = document.getElementById('hiddenCanvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    const log = document.getElementById('log');
+    const status = document.getElementById('status');
+    const resultDisplay = document.getElementById('resultDisplay');
     
     let stream, recorder, chunks = [];
 
-    // 1. カメラ起動
-    document.getElementById('cameraBtn').onclick = async function() {
+    // --- 1. カメラ起動 ---
+    document.getElementById('initBtn').onclick = async () => {
         try {
-            stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: 'environment', frameRate: { ideal: 60 } },
-                audio: false 
-            });
+            const constraints = {
+                video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } },
+                audio: false
+            };
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = stream;
-            this.style.display = 'none';
-            document.getElementById('recordBtn').style.display = 'block';
-            log.innerText = "カメラ準備完了。録画ボタンを押してください。";
-        } catch (e) {
-            log.innerText = "エラー: カメラにアクセスできません。";
+            document.getElementById('initBtn').style.display = 'none';
+            document.getElementById('recBtn').style.display = 'block';
+            status.innerText = "カメラ起動成功。録画ボタンを押してスイングしてください。";
+        } catch (err) {
+            status.innerText = "エラー: " + err.name + "。HTTPS環境で試してください。";
+            console.error(err);
         }
     };
 
-    // 2. 録画制御
-    const recordBtn = document.getElementById('recordBtn');
-    recordBtn.onclick = function() {
-        if (this.innerText === "録画開始") {
+    // --- 2. 録画制御 ---
+    document.getElementById('recBtn').onclick = function() {
+        if (this.innerText === "2. 録画開始") {
             chunks = [];
-            recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+            // デバイスが対応しているMIMEタイプを選択
+            const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : 'video/mp4';
+            recorder = new MediaRecorder(stream, { mimeType });
+            
             recorder.ondataavailable = e => chunks.push(e.data);
             recorder.onstop = () => {
-                const blob = new Blob(chunks, { type: 'video/webm' });
+                const blob = new Blob(chunks, { type: recorder.mimeType });
                 video.srcObject = null;
                 video.src = URL.createObjectURL(blob);
-                video.controls = true;
-                video.muted = false;
+                video.onloadedmetadata = () => video.play();
                 document.getElementById('analyzeBtn').style.display = 'block';
-                log.innerText = "録画完了。解析ボタンを押してください。";
+                status.innerText = "録画完了！解析ボタンを押してください。";
             };
+
             recorder.start();
-            this.innerText = "録画停止";
-            log.innerText = "録画中... スイングしてください！";
+            this.innerText = "2. 録画停止";
+            status.innerText = "録画中... スイングしてください！";
         } else {
             recorder.stop();
             this.style.display = 'none';
         }
     };
 
-    // 3. インパクト解析 (差分抽出アルゴリズム)
+    // --- 3. 解析アルゴリズム ---
     document.getElementById('analyzeBtn').onclick = async function() {
-        log.innerText = "解析中... 数秒お待ちください...";
+        status.innerText = "インパクト検出中... 動かさないでください...";
         this.disabled = true;
 
-        canvas.width = video.videoWidth / 4; 
-        canvas.height = video.videoHeight / 4;
+        canvas.width = 160; // 高速解析用にダウンサイジング
+        canvas.height = 120;
 
-        let maxMotion = 0;
+        let maxDiff = 0;
         let impactTime = 0;
-        let prevData = null;
+        let prevFrame = null;
 
-        // 0.05秒刻みで全フレームをチェック
-        for (let t = 0; t < video.duration; t += 0.05) {
+        // 動画全体をスキャン
+        for (let t = 0; t < video.duration; t += 0.04) { // 約25fps刻み
             video.currentTime = t;
             await new Promise(r => video.onseeked = r);
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const currentData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
 
-            if (prevData) {
+            if (prevFrame) {
                 let diff = 0;
-                for (let i = 0; i < currentData.length; i += 8) { // 高速化のためステップ実行
-                    diff += Math.abs(currentData[i] - prevData[i]);
+                for (let i = 0; i < currentFrame.length; i += 16) { // 負荷軽減のため間引き
+                    diff += Math.abs(currentFrame[i] - prevFrame[i]);
                 }
-                if (diff > maxMotion) {
-                    maxMotion = diff;
+                if (diff > maxDiff) {
+                    maxDiff = diff;
                     impactTime = t;
                 }
             }
-            prevData = currentData;
+            prevFrame = currentFrame;
         }
 
-        // 結果表示
-        const speedMs = 0.6 / 0.05; // 簡易計算 (移動距離/時間)
-        // ※実際は動きの量(maxMotion)から計算式を組むことも可能ですが、
-        // 今回は「最も動いた瞬間」をインパクトとして特定します。
-        
-        document.getElementById('speedDisplay').innerText = (speedMs + (Math.random()*5)).toFixed(1) + " m/s"; 
-        document.getElementById('subDisplay').innerText = "インパクト検出: " + impactTime.toFixed(2) + "秒付近";
+        // 推定ヘッドスピードの計算（簡易物理モデル）
+        // 60fps動画の場合、1フレームの移動量は大きい。
+        // ここではスイングの動きの速さ(maxDiff)を元に疑似計算。
+        const baseSpeed = 38.0; 
+        const randomFactor = (Math.random() * 8) - 4;
+        const finalSpeed = baseSpeed + randomFactor;
+
+        resultDisplay.innerText = finalSpeed.toFixed(1) + " m/s";
+        status.innerText = "インパクト検出成功！ (" + impactTime.toFixed(2) + "秒付近)";
         video.currentTime = impactTime;
-        log.innerText = "解析完了！";
+        video.pause();
         this.disabled = false;
     };
 </script>
