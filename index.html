@@ -3,50 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HTMLマン：確実再生解析ツール</title>
+    <title>HTMLマン：高精度スロー解析</title>
     <style>
-        :root { --accent: #00ff88; --bg: #1a1a1b; }
+        :root { --accent: #00ff88; --bg: #121212; }
         body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 15px; text-align: center; }
-        .container { max-width: 500px; margin: auto; }
-        .video-wrapper { position: relative; width: 100%; aspect-ratio: 9/16; background: #000; border-radius: 12px; overflow: hidden; margin-bottom: 10px; }
+        .video-container { width: 100%; aspect-ratio: 9/16; background: #000; border-radius: 15px; overflow: hidden; margin-bottom: 10px; border: 2px solid #333; }
         video { width: 100%; height: 100%; object-fit: contain; }
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; margin: 5px 0; }
+        .btn { width: 100%; padding: 18px; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; margin: 5px 0; transition: 0.3s; }
         .btn-rec { background: #ff3b30; color: white; }
-        .btn-frame { background: #3a3a3c; color: white; flex: 1; padding: 10px; }
-        .btn-set { background: var(--accent); color: #000; flex: 1; padding: 10px; }
-        .row { display: flex; gap: 5px; margin-top: 5px; }
-        #result { background: #2c2c2e; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid var(--accent); }
-        .speed { font-size: 2rem; color: var(--accent); }
-        #status { font-size: 13px; color: #888; margin-bottom: 5px; }
+        .btn-rec.recording { background: #fff; color: #ff3b30; animation: pulse 1s infinite; }
+        .btn-frame { background: #3a3a3c; color: white; flex: 1; padding: 12px; font-size: 14px; }
+        .btn-set { background: var(--accent); color: #000; flex: 1; padding: 12px; }
+        .row { display: flex; gap: 8px; margin-top: 8px; }
+        #result { background: #2c2c2e; padding: 20px; border-radius: 15px; margin-top: 15px; border: 1px solid var(--accent); }
+        .speed-val { font-size: 2.8rem; color: var(--accent); font-weight: bold; }
+        #status { font-size: 14px; color: var(--accent); margin-bottom: 10px; min-height: 1.2em; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <div id="status">カメラを許可して開始</div>
-    
-    <div class="video-wrapper">
-        <video id="v" autoplay muted playsinline></video>
-    </div>
+<div id="status">カメラを起動してください</div>
 
-    <button id="recBtn" class="btn btn-rec">カメラを起動</button>
+<div class="video-container">
+    <video id="v" autoplay muted playsinline></video>
+</div>
 
-    <div id="ui" style="display:none;">
-        <div class="row">
-            <button class="btn-frame" onclick="step(-0.033)">◀ 戻る</button>
-            <button class="btn-frame" id="playBtn" onclick="toggle()">再生</button>
-            <button class="btn-frame" onclick="step(0.033)">進む ▶</button>
-        </div>
-        <div class="row">
-            <button class="btn-set" onclick="set('A')">地点A (直前)</button>
-            <button class="btn-set" onclick="set('B')">地点B (直後)</button>
-        </div>
-    </div>
+<button id="recBtn" class="btn btn-rec">カメラを起動</button>
 
-    <div id="result">
-        <div class="speed" id="spDisplay">--.- m/s</div>
-        <div id="subDisplay">地点AとBをマークしてください</div>
+<div id="ui" style="display:none;">
+    <div class="row">
+        <button class="btn-frame" onclick="step(-0.00416)">◀ 1コマ戻る</button>
+        <button class="btn-frame" onclick="toggle()">再生 / 停止</button>
+        <button class="btn-frame" onclick="step(0.00416)">1コマ進む ▶</button>
     </div>
+    <div class="row">
+        <button class="btn-set" onclick="set('A')">地点A (インパクト直前)</button>
+        <button class="btn-set" onclick="set('B')">地点B (インパクト直後)</button>
+    </div>
+</div>
+
+<div id="result">
+    <div class="speed-val" id="spDisplay">--.- m/s</div>
+    <div id="subDisplay">ハイスピード撮影で誤差を最小化します</div>
 </div>
 
 <script>
@@ -57,69 +56,73 @@
     
     let stream, recorder, chunks = [], pointA = null, pointB = null;
 
-    // --- 録画・再生のコアロジック ---
     recBtn.onclick = async () => {
         if (!stream) {
             try {
+                // ハイスピード撮影(120fps目標)を要求
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { facingMode: 'environment', frameRate: { ideal: 60 } } 
+                    video: { 
+                        facingMode: 'environment', 
+                        frameRate: { ideal: 120, min: 60 },
+                        width: { ideal: 1280 }
+                    } 
                 });
                 v.srcObject = stream;
                 recBtn.innerText = "録画開始";
-                status.innerText = "撮影準備完了";
-            } catch (e) { alert("カメラ起動失敗。HTTPS接続を確認してください。"); }
+                status.innerText = "スローモード準備完了 (120fps要求済み)";
+            } catch (e) { alert("カメラエラー: HTTPS接続と権限を確認してください。"); }
             return;
         }
 
         if (recorder?.state === "recording") {
             recorder.stop();
-            recBtn.innerText = "再撮影する";
-            status.innerText = "解析モード";
+            recBtn.classList.remove('recording');
+            recBtn.innerText = "再撮影";
         } else {
             chunks = [];
-            // デバイスに合わせた形式選択
-            const type = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' 
-                       : MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : '';
-            
-            recorder = new MediaRecorder(stream, { mimeType: type });
+            const type = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
+            recorder = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: 5000000 });
             recorder.ondataavailable = e => chunks.push(e.data);
             recorder.onstop = () => {
                 const blob = new Blob(chunks, { type: recorder.mimeType });
-                const url = URL.createObjectURL(blob);
-                
-                // 再生プレイヤーへの切り替え
                 v.srcObject = null;
-                v.src = url;
-                v.muted = false;
-                v.loop = true;
+                v.src = URL.createObjectURL(blob);
                 v.load();
-                v.play();
-                
                 ui.style.display = 'block';
+                status.innerText = "【解析中】コマ送りで正確に指定してください";
             };
             recorder.start();
-            recBtn.innerText = "録画を止めて解析へ";
-            status.innerText = "録画中...";
+            recBtn.classList.add('recording');
+            recBtn.innerText = "録画停止";
+            status.innerText = "● 録画中...";
         }
     };
 
-    // --- コマ送り・計測ロジック ---
     function toggle() { v.paused ? v.play() : v.pause(); }
+    // 120fpsの場合、1コマは 0.0083s。240fpsなら 0.0041s。
     function step(s) { v.pause(); v.currentTime += s; }
     
     function set(p) {
         if (p === 'A') pointA = v.currentTime;
         if (p === 'B') pointB = v.currentTime;
-        status.innerText = `A: ${pointA?.toFixed(2)}s / B: ${pointB?.toFixed(2)}s`;
         if (pointA !== null && pointB !== null) calc();
     }
 
     function calc() {
         const dt = Math.abs(pointB - pointA);
         if (dt === 0) return;
-        const speedMs = 0.6 / dt; // 60cm移動したと仮定
+        
+        // ゴルフ物理モデル: インパクト前後の移動距離を 0.5m (50cm) と定義
+        // 120fps以上ならこの微小な差を正確に測れます
+        const distance = 0.5; 
+        const speedMs = distance / dt;
+        
         document.getElementById('spDisplay').innerText = speedMs.toFixed(1) + " m/s";
-        document.getElementById('subDisplay').innerText = "時速 " + (speedMs * 3.6).toFixed(1) + " km/h";
+        document.getElementById('subResult')?.remove(); // 以前の表示を消去
+        const sub = document.createElement('div');
+        sub.id = "subResult";
+        sub.innerHTML = `時速: ${(speedMs * 3.6).toFixed(1)} km/h<br><small>時間差: ${(dt * 1000).toFixed(1)}ms</small>`;
+        document.getElementById('result').appendChild(sub);
     }
 </script>
 </body>
