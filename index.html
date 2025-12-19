@@ -3,129 +3,123 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>HTMLマン：マニュアル・インパクト解析</title>
+    <title>HTMLマン：確実再生解析ツール</title>
     <style>
-        :root { --accent: #ffcc00; --bg: #121212; --panel: #1e1e1e; }
-        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 20px; text-align: center; }
-        .container { max-width: 600px; margin: auto; }
-        video { width: 100%; border-radius: 10px; background: #000; margin-bottom: 10px; }
-        .control-panel { background: var(--panel); padding: 15px; border-radius: 15px; margin-bottom: 10px; }
-        .frame-ctrl { display: flex; justify-content: center; gap: 10px; margin: 10px 0; }
-        button { padding: 12px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        .btn-main { background: #007aff; color: white; width: 100%; margin-bottom: 10px; }
-        .btn-frame { background: #444; color: white; flex: 1; }
-        .btn-set { background: var(--accent); color: #000; flex: 1; }
-        .result-box { background: #2c2c2e; padding: 20px; border-radius: 15px; border: 1px solid var(--accent); }
-        .speed-large { font-size: 2.5rem; color: var(--accent); font-weight: bold; }
-        .info { font-size: 0.8rem; color: #aaa; margin-bottom: 10px; }
+        :root { --accent: #00ff88; --bg: #1a1a1b; }
+        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 15px; text-align: center; }
+        .container { max-width: 500px; margin: auto; }
+        .video-wrapper { position: relative; width: 100%; aspect-ratio: 9/16; background: #000; border-radius: 12px; overflow: hidden; margin-bottom: 10px; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 16px; font-weight: bold; cursor: pointer; margin: 5px 0; }
+        .btn-rec { background: #ff3b30; color: white; }
+        .btn-frame { background: #3a3a3c; color: white; flex: 1; padding: 10px; }
+        .btn-set { background: var(--accent); color: #000; flex: 1; padding: 10px; }
+        .row { display: flex; gap: 5px; margin-top: 5px; }
+        #result { background: #2c2c2e; padding: 15px; border-radius: 12px; margin-top: 15px; border: 1px solid var(--accent); }
+        .speed { font-size: 2rem; color: var(--accent); }
+        #status { font-size: 13px; color: #888; margin-bottom: 5px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>🏌️‍♂️ Manual Speed Analyzer</h2>
-    <div class="info" id="status">1. カメラを起動して録画してください</div>
+    <div id="status">カメラを許可して開始</div>
+    
+    <div class="video-wrapper">
+        <video id="v" autoplay muted playsinline></video>
+    </div>
 
-    <video id="videoPlayer" autoplay muted playsinline></video>
+    <button id="recBtn" class="btn btn-rec">カメラを起動</button>
 
-    <div class="control-panel">
-        <button id="recBtn" class="btn-main">カメラを起動 / 録画</button>
-        
-        <div id="manualUI" style="display:none;">
-            <div class="info">動画を止めて、1フレームずつ動かしてインパクト前後を指定</div>
-            <div class="frame-ctrl">
-                <button class="btn-frame" onclick="changeFrame(-0.033)">◀ 戻る</button>
-                <button class="btn-frame" onclick="togglePlay()">再生/一時停止</button>
-                <button class="btn-frame" onclick="changeFrame(0.033)">進む ▶</button>
-            </div>
-            <div class="frame-ctrl">
-                <button class="btn-set" onclick="setPoint('A')">地点A (インパクト直前)</button>
-                <button class="btn-set" onclick="setPoint('B')">地点B (インパクト直後)</button>
-            </div>
+    <div id="ui" style="display:none;">
+        <div class="row">
+            <button class="btn-frame" onclick="step(-0.033)">◀ 戻る</button>
+            <button class="btn-frame" id="playBtn" onclick="toggle()">再生</button>
+            <button class="btn-frame" onclick="step(0.033)">進む ▶</button>
+        </div>
+        <div class="row">
+            <button class="btn-set" onclick="set('A')">地点A (直前)</button>
+            <button class="btn-set" onclick="set('B')">地点B (直後)</button>
         </div>
     </div>
 
-    <div class="result-box">
-        <div id="speedResult" class="speed-large">--.- m/s</div>
-        <div id="subResult">-- km/h</div>
+    <div id="result">
+        <div class="speed" id="spDisplay">--.- m/s</div>
+        <div id="subDisplay">地点AとBをマークしてください</div>
     </div>
 </div>
 
 <script>
-    const video = document.getElementById('videoPlayer');
+    const v = document.getElementById('v');
     const recBtn = document.getElementById('recBtn');
+    const ui = document.getElementById('ui');
     const status = document.getElementById('status');
-    const manualUI = document.getElementById('manualUI');
     
-    let stream, recorder, chunks = [];
-    let pointA = null, pointB = null;
+    let stream, recorder, chunks = [], pointA = null, pointB = null;
 
-    // --- 録画機能 ---
+    // --- 録画・再生のコアロジック ---
     recBtn.onclick = async () => {
         if (!stream) {
-            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            video.srcObject = stream;
-            recBtn.innerText = "録画開始";
-            status.innerText = "準備完了";
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', frameRate: { ideal: 60 } } 
+                });
+                v.srcObject = stream;
+                recBtn.innerText = "録画開始";
+                status.innerText = "撮影準備完了";
+            } catch (e) { alert("カメラ起動失敗。HTTPS接続を確認してください。"); }
             return;
         }
 
-        if (recBtn.innerText === "録画開始") {
+        if (recorder?.state === "recording") {
+            recorder.stop();
+            recBtn.innerText = "再撮影する";
+            status.innerText = "解析モード";
+        } else {
             chunks = [];
-            recorder = new MediaRecorder(stream);
+            // デバイスに合わせた形式選択
+            const type = MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' 
+                       : MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : '';
+            
+            recorder = new MediaRecorder(stream, { mimeType: type });
             recorder.ondataavailable = e => chunks.push(e.data);
             recorder.onstop = () => {
-                const blob = new Blob(chunks, { type: 'video/webm' });
-                video.srcObject = null;
-                video.src = URL.createObjectURL(blob);
-                video.controls = false;
-                manualUI.style.display = 'block';
-                status.innerText = "コマ送りでインパクト前後を選んでください";
+                const blob = new Blob(chunks, { type: recorder.mimeType });
+                const url = URL.createObjectURL(blob);
+                
+                // 再生プレイヤーへの切り替え
+                v.srcObject = null;
+                v.src = url;
+                v.muted = false;
+                v.loop = true;
+                v.load();
+                v.play();
+                
+                ui.style.display = 'block';
             };
             recorder.start();
-            recBtn.innerText = "録画停止";
+            recBtn.innerText = "録画を止めて解析へ";
             status.innerText = "録画中...";
-        } else {
-            recorder.stop();
-            recBtn.innerText = "再撮影";
         }
     };
 
-    // --- コマ送り・解析機能 ---
-    function togglePlay() {
-        video.paused ? video.play() : video.pause();
+    // --- コマ送り・計測ロジック ---
+    function toggle() { v.paused ? v.play() : v.pause(); }
+    function step(s) { v.pause(); v.currentTime += s; }
+    
+    function set(p) {
+        if (p === 'A') pointA = v.currentTime;
+        if (p === 'B') pointB = v.currentTime;
+        status.innerText = `A: ${pointA?.toFixed(2)}s / B: ${pointB?.toFixed(2)}s`;
+        if (pointA !== null && pointB !== null) calc();
     }
 
-    function changeFrame(sec) {
-        video.pause();
-        video.currentTime += sec;
-    }
-
-    function setPoint(label) {
-        if (label === 'A') {
-            pointA = video.currentTime;
-            status.innerText = "地点A固定: " + pointA.toFixed(3) + "s";
-        } else {
-            pointB = video.currentTime;
-            status.innerText = "地点B固定: " + pointB.toFixed(3) + "s";
-            calculate();
-        }
-    }
-
-    function calculate() {
-        if (pointA === null || pointB === null) return;
+    function calc() {
         const dt = Math.abs(pointB - pointA);
         if (dt === 0) return;
-
-        // 【ゴルフ指導者のロジック】
-        // インパクト直前（ヘッドがボールに触れる寸前）から
-        // 直後（ボールが離れた瞬間）の移動距離を約 60cm(0.6m) と仮定
-        const distance = 0.6; 
-        const speedMs = distance / dt;
-        const speedKmh = speedMs * 3.6;
-
-        document.getElementById('speedResult').innerText = speedMs.toFixed(1) + " m/s";
-        document.getElementById('subResult').innerText = "時速 " + speedKmh.toFixed(1) + " km/h (時間差: " + (dt*1000).toFixed(0) + "ms)";
+        const speedMs = 0.6 / dt; // 60cm移動したと仮定
+        document.getElementById('spDisplay').innerText = speedMs.toFixed(1) + " m/s";
+        document.getElementById('subDisplay').innerText = "時速 " + (speedMs * 3.6).toFixed(1) + " km/h";
     }
 </script>
 </body>
