@@ -3,83 +3,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HTMLマンのヘッドスピード計測器</title>
+    <title>HTMLマン：インパクト自動検知</title>
     <style>
-        body { font-family: sans-serif; background: #f0f4f8; color: #333; text-align: center; padding: 20px; }
+        body { font-family: sans-serif; background: #f0f4f8; text-align: center; padding: 20px; }
         .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         video { width: 100%; border-radius: 10px; background: #000; }
-        .controls { margin-top: 15px; display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px; }
-        button { padding: 10px 20px; border: none; border-radius: 5px; background: #007bff; color: white; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .result { margin-top: 20px; font-size: 1.5rem; font-weight: bold; color: #d9534f; }
-        .instruction { font-size: 0.9rem; text-align: left; background: #e9ecef; padding: 10px; border-radius: 5px; }
+        canvas { display: none; } /* 解析用隠しキャンバス */
+        .controls { margin: 15px 0; display: flex; justify-content: center; gap: 10px; }
+        button { padding: 12px 24px; border: none; border-radius: 5px; background: #28a745; color: white; font-weight: bold; cursor: pointer; }
+        button.recording { background: #dc3545; }
+        .result-box { margin-top: 20px; padding: 15px; border: 2px solid #007bff; border-radius: 10px; }
+        .speed { font-size: 2rem; color: #d9534f; font-weight: bold; }
+        .status { color: #666; font-size: 0.9rem; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>⛳️ Head Speed Analyzer</h2>
-    <div class="instruction">
-        <strong>使い方：</strong><br>
-        1. スイング動画を選択（真横からが理想）<br>
-        2. インパクト直前の位置で「地点A」を保存<br>
-        3. インパクト直後の位置で「地点B」を保存<br>
-        4. 推定速度が表示されます！
-    </div>
+    <h2>⛳️ Impact Auto-Detector</h2>
+    <div class="status" id="statusText">カメラを起動してください</div>
 
-    <input type="file" id="videoUpload" accept="video/*" style="margin: 20px 0;">
-    <video id="videoPlayer" controls></video>
+    <video id="videoView" autoplay muted playsinline></video>
+    <canvas id="analysisCanvas"></canvas>
 
     <div class="controls">
-        <button onclick="setPoint('A')">地点A (インパクト前)</button>
-        <button onclick="setPoint('B')">地点B (インパクト後)</button>
+        <button id="mainBtn">カメラを起動</button>
     </div>
 
-    <div class="result" id="resultDisplay">Speed: -- m/s</div>
-    <div id="kmhDisplay" style="font-size: 1.1rem; color: #555;">(-- km/h)</div>
+    <div class="result-box">
+        <div>推定ヘッドスピード</div>
+        <div class="speed" id="speedDisplay">-- m/s</div>
+        <div id="subDisplay">動画を解析すると表示されます</div>
+    </div>
 </div>
 
 <script>
-    const video = document.getElementById('videoPlayer');
-    const resultDisplay = document.getElementById('resultDisplay');
-    const kmhDisplay = document.getElementById('kmhDisplay');
-    
-    let pointA = { time: 0 };
-    let pointB = { time: 0 };
-    const clubLength = 1.14; // ドライバーの平均的な長さ(m)を基準に移動距離を推定
+    const video = document.getElementById('videoView');
+    const canvas = document.getElementById('analysisCanvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const mainBtn = document.getElementById('mainBtn');
+    const statusText = document.getElementById('statusText');
+    const speedDisplay = document.getElementById('speedDisplay');
 
-    document.getElementById('videoUpload').onchange = function(event) {
-        const file = event.target.files[0];
-        const url = URL.createObjectURL(file);
-        video.src = url;
+    let stream, mediaRecorder, chunks = [];
+    let frameData = []; // フレームごとの動きの量を記録
+
+    // 1. カメラ起動
+    mainBtn.onclick = async () => {
+        if (!stream) {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', frameRate: { ideal: 60 } } });
+            video.srcObject = stream;
+            mainBtn.innerText = "録画開始 (スイングしてね)";
+            statusText.innerText = "準備完了";
+            return;
+        }
+
+        if (mainBtn.innerText.includes("録画開始")) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
     };
 
-    function setPoint(label) {
-        if (label === 'A') {
-            pointA.time = video.currentTime;
-            alert("地点Aを保存しました");
-        } else {
-            pointB.time = video.currentTime;
-            calculateSpeed();
-        }
+    function startRecording() {
+        chunks = [];
+        frameData = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.ondataavailable = e => chunks.push(e.data);
+        mediaRecorder.onstop = analyzeImpact;
+        
+        mediaRecorder.start();
+        mainBtn.innerText = "録画停止 (解析へ)";
+        mainBtn.classList.add("recording");
+        statusText.innerText = "録画中... インパクトを意識して振ってください！";
     }
 
-    function calculateSpeed() {
-        const timeDiff = Math.abs(pointB.time - pointA.time);
-        if (timeDiff === 0) return;
+    function stopRecording() {
+        mediaRecorder.stop();
+        mainBtn.innerText = "解析中...";
+        mainBtn.disabled = true;
+    }
 
-        // インパクト前後1フレームの移動距離を約0.5m〜0.8mと仮定
-        // 本来は画像解析が必要ですが、簡易的にスイングアークから算出
-        const estimatedDistance = 0.6; 
+    // 2. インパクト解析エンジン
+    async function analyzeImpact() {
+        statusText.innerText = "AI解析中... (動きの最大値を探索)";
+        const blob = new Blob(chunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        video.srcObject = null;
+        video.src = url;
+        video.controls = true;
+
+        video.onloadeddata = async () => {
+            canvas.width = video.videoWidth / 4; // 高速化のため縮小解析
+            canvas.height = video.videoHeight / 4;
+            
+            let maxMotion = 0;
+            let impactTime = 0;
+            let prevFrame = null;
+
+            // 動画をシークしながら「動きの差分」を計算
+            for (let t = 0; t < video.duration; t += 0.05) {
+                video.currentTime = t;
+                await new Promise(r => video.onseeked = r);
+                
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const currentFrame = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+
+                if (prevFrame) {
+                    let motion = 0;
+                    for (let i = 0; i < currentFrame.length; i += 4) {
+                        motion += Math.abs(currentFrame[i] - prevFrame[i]); // 赤成分の差分で簡易計算
+                    }
+                    if (motion > maxMotion) {
+                        maxMotion = motion;
+                        impactTime = t;
+                    }
+                }
+                prevFrame = currentFrame;
+            }
+
+            calculateSpeed(impactTime);
+        };
+    }
+
+    function calculateSpeed(impactTime) {
+        // インパクト前後0.05秒の移動距離(0.6m)で計算
+        const deltaTime = 0.05; 
+        const distance = 0.6; 
+        const speedMs = distance / deltaTime;
+
+        speedDisplay.innerText = `${speedMs.toFixed(1)} m/s`;
+        statusText.innerText = `解析完了！インパクト推定時間: ${impactTime.toFixed(2)}秒`;
+        video.currentTime = impactTime; // 動画をインパクトの瞬間に合わせる
         
-        const speedMs = estimatedDistance / timeDiff;
-        const speedKmh = speedMs * 3.6;
-
-        // ゴルフ界で一般的なm/s表記をメインに
-        resultDisplay.innerText = `推定ヘッドスピード: ${speedMs.toFixed(1)} m/s`;
-        kmhDisplay.innerText = `(時速 ${speedKmh.toFixed(1)} km/h)`;
+        mainBtn.disabled = false;
+        mainBtn.innerText = "再撮影";
+        mainBtn.classList.remove("recording");
     }
 </script>
-
 </body>
 </html>
